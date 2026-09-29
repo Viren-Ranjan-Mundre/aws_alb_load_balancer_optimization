@@ -74,23 +74,27 @@ optimization) · Docker Compose · Locust (load generation) · Prometheus
 
 ## Results
 
-Measured against real chaos-injected traffic on 3 EC2 backends behind a real ALB:
+Measured against real chaos-injected traffic on 3 EC2 backends behind a real ALB
+(300K+ requests per mode in the final benchmark run):
 
 | Metric | Round Robin | LOR | Optimizer |
 |---|---|---|---|
-| Error rate | 0.0252 | 0.0193 | **0.0108** |
-| Cost per request | 1.4959 | 1.5013 | **1.4483** |
-| P95 latency (s) | 0.21 | 0.33 | 0.35 |
-| Throughput (req/s) | 568.5 | 511.2 | 485.2 |
+| Error rate | 0.0238 | 0.0400 | **0.0220** |
+| Avg latency (s) | 0.0766 | 0.0750 | **0.0646** |
+| P95 latency (s) | 0.34 | 0.33 | **0.26** |
+| P99 latency (s) | 0.89 | 0.67 | **0.56** |
+| Throughput (req/s) | 492.97 | 496.69 | **524.14** |
+| Cost per request | 1.3948 | 1.3786 | **1.3785** |
 
-- **57% lower error rate** than Round Robin, **44% lower** than LOR — achieved by
-  correctly shifting traffic away from a risk-flagged backend.
-- **~3% lower cost per request** than both baselines, from preferring the cheaper
-  healthy backend when risk is comparable.
-- **Latency tradeoff, not yet tuned away**: P95/avg latency and throughput are worse
-  than Round Robin in this run. The optimizer's objective function currently weights
-  error-avoidance and cost more heavily than latency — a real tuning gap, not a claim
-  this is production-ready as-is.
+- **45% lower error rate than LOR**, 7.4% lower than Round Robin.
+- **Latency down across every percentile against both baselines** — P99 is 37% lower
+  than Round Robin and 16% lower than LOR, P95 is 24%/21% lower respectively.
+- **Higher throughput than both baselines simultaneously** (+6.3% vs. Round Robin,
+  +5.5% vs. LOR), while also being at or below both on cost per request.
+- No metric regresses against either baseline in this run — earlier iterations showed a
+  real error-rate/latency tradeoff (see commit history / iteration logs) that closed
+  once the model was retrained on properly-typed (XGBoost) data through a full
+  three-iteration active-learning cycle.
 
 ## Project structure
 
@@ -124,8 +128,6 @@ whole stack (router + backends + engine) on one machine.
 - Chaos injection uses the same *distribution* across benchmark phases but isn't a
   fixed, replayed schedule — a deterministic chaos seed would make baseline comparisons
   tighter.
-- The optimizer's objective weighting needs tuning to recover the latency regression
-  seen against Round Robin.
 - SLA violation tracking isn't implemented against the real-ALB deployment (it
   required per-request logs the router used to keep; not yet replicated).
 - The engine instance is a single point of failure for *adaptation* (not for serving —
