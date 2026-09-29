@@ -1,0 +1,21 @@
+# Deploy this SAME file to each of the 3 backend EC2 instances, changing
+# only BACKEND_ID in a .env file alongside it (or via an exported shell
+# var) on each instance: backend1 on instance A, backend2 on instance B,
+# backend3 on instance C. See AWS_DEPLOYMENT.md.
+#
+# Local testing still uses the original docker-compose.yml (all-in-one,
+# single host) -- this file is specifically for the real distributed
+# EC2 deployment, where each backend is its own machine.
+services:
+  backend:
+    build: ./backends
+    ports:
+      - "8000:8000"
+    environment:
+      - BACKEND_ID=${BACKEND_ID:?Set BACKEND_ID to backend1, backend2, or backend3 in .env on this instance}
+      # AUTO_CHAOS=false because the chaos-orchestrator (running on the
+      # router+engine instance, see docker-compose.router.yml) drives
+      # randomized failures centrally across all 3 real instances and
+      # logs ground truth for the whole cluster.
+      - AUTO_CHAOS=false
+    restart: unless-stopped

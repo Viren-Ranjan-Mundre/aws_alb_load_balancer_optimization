@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Intelligent Traffic Router — Live Dashboard</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #131a22;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #4f9dff;
+    --danger: #ff5c5c;
+    --ok: #3ecf8e;
+    --warn: #f5a623;
+    --border: #22303c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2.section { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 32px 0 12px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center; }
+  .row { display: flex; justify-content: space-between; font-size: 13px; margin: 6px 0; color: var(--muted); }
+  .row b { color: var(--text); font-weight: 600; }
+  .bar-wrap { background: #1c2733; border-radius: 6px; height: 22px; overflow: hidden; margin-top: 4px; }
+  .bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #7cc4ff);
+    transition: width 0.6s ease;
+    display: flex; align-items: center; justify-content: flex-end;
+    color: #061018; font-size: 11px; font-weight: 700; padding-right: 6px;
+  }
+  .bar.baseline { background: linear-gradient(90deg, #6b7280, #9ca3af); }
+  .risk-high { color: var(--danger); font-weight: 700; }
+  .risk-ok { color: var(--ok); font-weight: 700; }
+  .chaos-badge {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: #2a1418; color: var(--danger); border: 1px solid #4a2228;
+  }
+  .healthy-badge {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: #12241c; color: var(--ok); border: 1px solid #1f3d2c;
+  }
+  .controls { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .controls label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  .controls input { width: 90px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border); background: #0e1520; color: var(--text); }
+  button {
+    background: var(--accent); border: none; color: #04101c; font-weight: 700;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button.secondary { background: #2a3644; color: var(--text); }
+  button.active { background: var(--ok); }
+  #status { font-size: 12px; color: var(--muted); margin-top: 20px; }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .compare-card h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .big-number { font-size: 28px; font-weight: 700; }
+  .model-line { font-size: 12px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+  <h1>Intelligent Traffic Router — Live</h1>
+  <div class="sub">Polls the optimization engine every 2s. Chaos is randomized across all backends by the orchestrator — no manual curl needed, though it still works.</div>
+
+  <div class="controls">
+    <label>Engine URL
+      <input id="engineUrl" value="http://localhost:8010" />
+    </label>
+    <label>Router URL
+      <input id="routerUrl" value="http://localhost:9000" />
+    </label>
+    <label>&alpha; latency
+      <input id="alpha" type="number" step="0.1" value="1.0" />
+    </label>
+    <label>&beta; cost
+      <input id="beta" type="number" step="0.1" value="0.3" />
+    </label>
+    <label>&gamma; risk
+      <input id="gamma" type="number" step="0.1" value="1.5" />
+    </label>
+    <button onclick="applyTuning()">Apply tuning</button>
+  </div>
+
+  <div class="controls">
+    <span style="font-size:12px;color:var(--muted);">Active routing policy:</span>
+    <button id="modeRRBtn" class="secondary" onclick="setMode('round_robin')">Round Robin</button>
+    <button id="modeLorBtn" class="secondary" onclick="setMode('lor')">Least Outstanding Requests</button>
+    <button id="modeOptBtn" onclick="setMode('optimizer')">Optimizer</button>
+    <button class="secondary" onclick="resetStats()">Reset measured stats</button>
+  </div>
+
+  <h2 class="section">Backends</h2>
+  <div class="sub" id="weightsNote" style="margin-bottom:12px;"></div>
+  <div class="grid" id="grid"></div>
+
+  <h2 class="section">Round Robin vs. LOR vs. Optimizer — live comparison</h2>
+  <div class="sub" style="margin-bottom:12px;">Round Robin's share is exactly uniform by definition. LOR's share here is an analytical
+    approximation (real LOR depends on live completion timing, tracked for real by the router itself). Optimizer's
+    is exactly what it's computing right now. For REAL measured performance under all three, run the evaluation
+    pipeline in <code>risk-model/</code> — see <code>comparison_report.json</code>.</div>
+  <div class="compare-grid">
+    <div class="card compare-card">
+      <h3>Expected error rate right now (estimated, same live conditions)</h3>
+      <div class="row"><span>Round Robin</span></div>
+      <div class="big-number" id="cmpRRErr" style="color:var(--muted);">—</div>
+      <div class="row" style="margin-top:12px;"><span>Least Outstanding Requests</span></div>
+      <div class="big-number" id="cmpLorErr" style="color:var(--warn);">—</div>
+      <div class="row" style="margin-top:12px;"><span>Optimizer (risk-aware)</span></div>
+      <div class="big-number" id="cmpOptErr" style="color:var(--ok);">—</div>
+      <div class="model-line" id="cmpTicks"></div>
+    </div>
+    <div class="card compare-card">
+      <h3>Real measured stats (from actual routed traffic, per active mode)</h3>
+      <div id="realStats">Waiting for traffic…</div>
+    </div>
+  </div>
+
+  <h2 class="section">Risk model</h2>
+  <div class="card">
+    <div class="row"><span>Source</span><b id="modelSource">—</b></div>
+    <div class="row"><span>Version / retrain count</span><b id="modelVersion">—</b></div>
+    <div class="row"><span>Last retrained</span><b id="modelRetrained">—</b></div>
+    <div class="row"><span>Live buffer size</span><b id="modelBuffer">—</b></div>
+    <div class="model-line">The model ships pretrained on collected data and keeps
+      retraining itself online on real live telemetry (ground-truth labeled by each
+      backend's own chaos state) — no restart needed.</div>
+  </div>
+
+  <h2 class="section">RL calibration agent (Q-learning)</h2>
+  <div class="card">
+    <div class="row"><span>Exploration (&epsilon;)</span><b id="rlEpsilon">—</b></div>
+    <div class="row"><span>Steps</span><b id="rlSteps">—</b></div>
+    <div class="row"><span>Avg. reward</span><b id="rlReward">—</b></div>
+    <div class="model-line" style="margin-bottom:8px;">Learns a per-risk-bucket correction on top of
+      the classifier's raw prediction, from real observed outcomes — a distinct adaptation
+      mechanism from the supervised retraining above. Best learned action per bucket:</div>
+    <div id="rlTable"></div>
+  </div>
+
+  <div id="status">Waiting for engine…</div>
+
+<script>
+function engineUrl() { return document.getElementById('engineUrl').value.replace(/\/$/, ''); }
+function routerUrl() { return document.getElementById('routerUrl').value.replace(/\/$/, ''); }
+
+async function applyTuning() {
+  const alpha = document.getElementById('alpha').value;
+  const beta = document.getElementById('beta').value;
+  const gamma = document.getElementById('gamma').value;
+  try {
+    await fetch(`${engineUrl()}/tune?alpha=${alpha}&beta=${beta}&gamma=${gamma}`, { method: 'POST' });
+  } catch (e) { console.error(e); }
+}
+
+async function setMode(mode) {
+  try {
+    await fetch(`${engineUrl()}/mode?mode=${mode}`, { method: 'POST' });
+    applyModeButtonStyles(mode);
+  } catch (e) { console.error(e); }
+}
+
+function applyModeButtonStyles(mode) {
+  document.getElementById('modeRRBtn').className = mode === 'round_robin' ? 'active' : 'secondary';
+  document.getElementById('modeLorBtn').className = mode === 'lor' ? 'active' : 'secondary';
+  document.getElementById('modeOptBtn').className = mode === 'optimizer' ? 'active' : 'secondary';
+}
+
+async function resetStats() {
+  try { await fetch(`${routerUrl()}/stats/reset`, { method: 'POST' }); } catch (e) { console.error(e); }
+}
+
+function fmtPct(x) { return x === null || x === undefined ? '—' : (x * 100).toFixed(1) + '%'; }
+function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString() : 'never'; }
+
+async function poll() {
+  const statusEl = document.getElementById('status');
+  try {
+    const res = await fetch(`${engineUrl()}/status`);
+    const data = await res.json();
+    render(data);
+    renderComparison(data);
+    renderModel(data);
+    renderRL(data);
+    statusEl.textContent = 'Last updated: ' + new Date(data.updated_at * 1000).toLocaleTimeString() + ' | active mode: ' + data.mode;
+  } catch (e) {
+    statusEl.textContent = 'Engine unreachable — is docker compose up and running?';
+  }
+
+  try {
+    const res = await fetch(`${routerUrl()}/stats`);
+    const stats = await res.json();
+    renderRealStats(stats);
+  } catch (e) {
+    document.getElementById('realStats').textContent = 'Router unreachable.';
+  }
+}
+
+function render(data) {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  const noteEl = document.getElementById('weightsNote');
+  if (data.mode === 'optimizer') {
+    noteEl.textContent = 'Bars show the live weight distribution actually being used to route traffic right now.';
+  } else {
+    noteEl.textContent = `Router is actually routing with the ${data.mode === 'round_robin' ? 'Round Robin' : 'LOR'} algorithm right now (not shown as weights, since neither is weight-based). Bars below show what the optimizer WOULD do if switched on.`;
+  }
+
+  const backends = Object.keys(data.weights || {});
+  backends.forEach(b => {
+    const weight = data.weights[b] || 0;
+    const m = (data.metrics || {})[b] || {};
+    const risk = (data.risks || {})[b] || 0;
+    const riskClass = risk > 0.5 ? 'risk-high' : 'risk-ok';
+    const truth = (data.chaos_ground_truth || {})[b] || {};
+    const chaosBadge = truth.chaos_active
+      ? `<span class="chaos-badge">${truth.chaos_type || 'chaos'} / ${truth.chaos_severity || '?'}</span>`
+      : `<span class="healthy-badge">healthy</span>`;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <h2>${b} ${chaosBadge}</h2>
+      <div class="bar-wrap"><div class="bar" style="width:${(weight*100).toFixed(1)}%">${(weight*100).toFixed(0)}%</div></div>
+      <div class="row"><span>p95 latency</span><b>${(m.backend_p95_latency||0).toFixed(3)}s</b></div>
+      <div class="row"><span>error rate</span><b>${((m.backend_error_rate||0)*100).toFixed(1)}%</b></div>
+      <div class="row"><span>cpu</span><b>${(m.backend_cpu||0).toFixed(0)}%</b></div>
+      <div class="row"><span>failure risk (model)</span><b class="${riskClass}">${(risk*100).toFixed(0)}%</b></div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderComparison(data) {
+  const cmp = data.comparison || {};
+  document.getElementById('cmpRRErr').textContent = fmtPct(cmp.round_robin_expected_error_rate_avg);
+  document.getElementById('cmpLorErr').textContent = fmtPct(cmp.lor_expected_error_rate_avg);
+  document.getElementById('cmpOptErr').textContent = fmtPct(cmp.optimizer_expected_error_rate_avg);
+  document.getElementById('cmpTicks').textContent = `Running average over ${cmp.ticks || 0} polling cycles since last engine restart.`;
+
+  applyModeButtonStyles(data.mode);
+}
+
+function renderRealStats(stats) {
+  const el = document.getElementById('realStats');
+  const order = ['round_robin', 'lor', 'optimizer'];
+  const labels = { round_robin: 'Round Robin', lor: 'LOR', optimizer: 'Optimizer' };
+  el.innerHTML = order.map(mode => {
+    const s = stats[mode];
+    if (!s) return '';
+    return `
+      <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+        <div class="row"><span><b style="color:var(--text);">${labels[mode]}</b></span><span>${s.requests} requests</span></div>
+        <div class="row"><span>error rate</span><b>${fmtPct(s.error_rate)}</b></div>
+        <div class="row"><span>latency avg / p50 / p95 / p99</span><b>${fmtS(s.avg_latency_s)} / ${fmtS(s.p50_latency_s)} / ${fmtS(s.p95_latency_s)} / ${fmtS(s.p99_latency_s)}</b></div>
+        <div class="row"><span>throughput</span><b>${(s.throughput_rps||0).toFixed(1)} req/s</b></div>
+        <div class="row"><span>SLA violation rate</span><b>${fmtPct(s.sla_violation_rate)}</b></div>
+        <div class="row"><span>cost / request</span><b>${s.cost_per_request != null ? s.cost_per_request.toFixed(3) : '—'}</b></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function fmtS(x) { return x === null || x === undefined ? '—' : (x * 1000).toFixed(0) + 'ms'; }
+
+function renderRL(data) {
+  const rl = data.rl || {};
+  document.getElementById('rlEpsilon').textContent = rl.epsilon != null ? rl.epsilon : '—';
+  document.getElementById('rlSteps').textContent = rl.steps != null ? rl.steps : '—';
+  document.getElementById('rlReward').textContent = rl.avg_reward != null ? rl.avg_reward.toFixed(4) : '—';
+  const q = rl.q_table || [];
+  document.getElementById('rlTable').innerHTML = q.map(row =>
+    `<div class="row"><span>risk ${row.bucket}</span><b>best correction: ${row.best_action > 0 ? '+' : ''}${row.best_action}</b></div>`
+  ).join('');
+}
+
+function renderModel(data) {
+  const m = data.model || {};
+  document.getElementById('modelSource').textContent = m.source || '—';
+  document.getElementById('modelVersion').textContent = m.version != null ? `v${m.version}` : '—';
+  document.getElementById('modelRetrained').textContent = fmtTime(m.last_retrained_at);
+  document.getElementById('modelBuffer').textContent = m.samples_used != null ? m.samples_used : '—';
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

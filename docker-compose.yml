@@ -1,0 +1,86 @@
+services:
+  backend1:
+    build: ./backends
+    ports:
+      - "8001:8000"
+    # AUTO_CHAOS=false because the chaos-orchestrator service (below) drives
+    # randomized failures centrally and logs ground truth for the whole
+    # cluster. Flip a backend's AUTO_CHAOS to "true" if you want it deciding
+    # its own chaos independently instead, with no orchestrator involved.
+    environment:
+      - BACKEND_ID=backend1
+      - AUTO_CHAOS=false
+    networks: [appnet]
+
+  backend2:
+    build: ./backends
+    ports:
+      - "8002:8000"
+    environment:
+      - BACKEND_ID=backend2
+      - AUTO_CHAOS=false
+    networks: [appnet]
+
+  backend3:
+    build: ./backends
+    ports:
+      - "8003:8000"
+    environment:
+      - BACKEND_ID=backend3
+      - AUTO_CHAOS=false
+    networks: [appnet]
+
+  # Randomly degrades any combination of backend1/2/3, with random failure
+  # type (latency/errors/cpu/combo) and severity (mild/moderate/severe), on
+  # random timers -- so failures look like the real world instead of always
+  # hitting backend2 on a human's curl command. Logs ground truth to
+  # /shared/chaos_log.jsonl for the training pipeline and comparison panel.
+  chaos-orchestrator:
+    build: ./chaos
+    volumes:
+      - shared-data:/shared
+    networks: [appnet]
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks: [appnet]
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+
+  engine:
+    build: ./engine
+    volumes:
+      - shared-data:/shared
+    ports:
+      - "8010:8000"
+    networks: [appnet]
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+
+  router:
+    build: ./router
+    volumes:
+      - shared-data:/shared
+    ports:
+      - "9000:8000"
+    networks: [appnet]
+    depends_on:
+      - engine
+
+volumes:
+  shared-data:
+
+networks:
+  appnet:

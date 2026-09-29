@@ -1,0 +1,21 @@
+# Deliberately unpinned: a pinned older numpy has no prebuilt wheel on newer
+# Python versions and falls back to compiling from source, which fails
+# without a modern C compiler toolchain. Unpinned lets pip grab whatever
+# version actually has a wheel for your Python.
+numpy
+pandas
+scikit-learn
+joblib
+requests
+
+# Only needed if you use --load-generator locust in the evaluation scripts.
+# The default --load-generator internal needs none of this.
+locust
+
+# Only needed for plot_benchmarks.py.
+matplotlib
+seaborn
+
+# Only needed if you use --model-type xgboost in generate_and_train.py.
+# The default --model-type logistic needs none of this.
+xgboost

@@ -1,0 +1,69 @@
+# Option 2 deployment: a REAL AWS ALB is the internet-facing data plane.
+# Deploy this to the ONE EC2 instance that runs the optimization engine.
+# There is NO router container here -- ALB itself forwards every
+# request to backend1/2/3's target groups. The engine only talks to the
+# ALB control plane (ELBv2 API) to push new weights periodically; it
+# never sees a single actual client request.
+#
+# The custom router from docker-compose.router.yml is NOT used in this
+# mode. It's kept in the repo for local testing (docker-compose.yml) and
+# as the fallback "Option 1"-style deployment, but Option 2 replaces it
+# entirely with ALB's own data plane.
+#
+# Requires a .env file alongside this one with:
+#   BACKEND1_URL=http://<backend1-ec2-private-ip>:8000
+#   BACKEND2_URL=http://<backend2-ec2-private-ip>:8000
+#   BACKEND3_URL=http://<backend3-ec2-private-ip>:8000
+#   ALB_ENABLED=true
+#   AWS_REGION=us-east-1
+#   ALB_LISTENER_ARN=arn:aws:elasticloadbalancing:...:listener/app/...
+#   TARGET_GROUP_ARN_BACKEND1=arn:aws:elasticloadbalancing:...:targetgroup/backend1-tg/...
+#   TARGET_GROUP_ARN_BACKEND2=arn:aws:elasticloadbalancing:...:targetgroup/backend2-tg/...
+#   TARGET_GROUP_ARN_BACKEND3=arn:aws:elasticloadbalancing:...:targetgroup/backend3-tg/...
+# See AWS_DEPLOYMENT.md, "Option 2: real ALB with weighted target groups".
+#
+# The engine instance needs an IAM instance profile that allows
+# elasticloadbalancing:ModifyListener / DescribeListeners on this ALB --
+# see engine/iam-policy-alb-weights.json. It does NOT need credentials
+# baked into the image or .env; boto3 picks up the instance profile
+# automatically.
+services:
+  engine:
+    build: ./engine
+    volumes:
+      - shared-data:/shared
+    ports:
+      - "8010:8000"
+    environment:
+      - BACKEND1_URL=${BACKEND1_URL:?Set BACKEND1_URL to backend1's EC2 address in .env}
+      - BACKEND2_URL=${BACKEND2_URL:?Set BACKEND2_URL to backend2's EC2 address in .env}
+      - BACKEND3_URL=${BACKEND3_URL:?Set BACKEND3_URL to backend3's EC2 address in .env}
+      - ALB_ENABLED=${ALB_ENABLED:?Set ALB_ENABLED=true in .env for this deployment mode}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - ALB_LISTENER_ARN=${ALB_LISTENER_ARN:?Set ALB_LISTENER_ARN in .env}
+      - TARGET_GROUP_ARN_BACKEND1=${TARGET_GROUP_ARN_BACKEND1:?Set TARGET_GROUP_ARN_BACKEND1 in .env}
+      - TARGET_GROUP_ARN_BACKEND2=${TARGET_GROUP_ARN_BACKEND2:?Set TARGET_GROUP_ARN_BACKEND2 in .env}
+      - TARGET_GROUP_ARN_BACKEND3=${TARGET_GROUP_ARN_BACKEND3:?Set TARGET_GROUP_ARN_BACKEND3 in .env}
+      - ALB_PUSH_INTERVAL_S=${ALB_PUSH_INTERVAL_S:-15}
+    restart: unless-stopped
+
+  chaos-orchestrator:
+    build: ./chaos
+    volumes:
+      - shared-data:/shared
+    environment:
+      - BACKEND1_URL=${BACKEND1_URL:?Set BACKEND1_URL to backend1's EC2 address in .env}
+      - BACKEND2_URL=${BACKEND2_URL:?Set BACKEND2_URL to backend2's EC2 address in .env}
+      - BACKEND3_URL=${BACKEND3_URL:?Set BACKEND3_URL to backend3's EC2 address in .env}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus/prometheus.ec2.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  shared-data:

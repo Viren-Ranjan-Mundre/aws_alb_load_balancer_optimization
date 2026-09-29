@@ -1,0 +1,15 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+httpx==0.27.2
+scipy==1.14.1
+numpy==2.1.1
+scikit-learn==1.5.2
+joblib==1.4.2
+# Needed to unpickle risk_model.pkl if it was trained with --model-type
+# xgboost in generate_and_train.py -- joblib.load() needs the class
+# definition available even though the engine's own code only ever calls
+# the model-agnostic .predict_proba().
+xgboost==2.1.1
+# Only imported at runtime when ALB_ENABLED=true (see alb_controller.py) --
+# lets the engine push weights into a real ALB listener's target groups.
+boto3==1.35.36

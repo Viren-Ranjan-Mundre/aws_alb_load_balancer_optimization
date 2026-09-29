@@ -1,0 +1,66 @@
+# Deploy this to the ONE EC2 instance that plays the router/ALB role.
+# router and engine stay co-located on the same instance deliberately:
+# they communicate via a shared local volume (/shared/weights.json,
+# /shared/mode.json), which only works when they're on the same
+# filesystem. Splitting THOSE two across instances would need switching
+# that IPC to a network call (e.g. router polling engine's /weights over
+# HTTP) -- a real design change, not just a deploy change, so it's kept
+# out of scope here. The 3 *backends* are the services that actually
+# scale out to separate EC2 instances (see docker-compose.backend.yml).
+#
+# Requires a .env file alongside this one (or exported shell vars) with:
+#   BACKEND1_URL=http://<backend1-ec2-ip>:8000
+#   BACKEND2_URL=http://<backend2-ec2-ip>:8000
+#   BACKEND3_URL=http://<backend3-ec2-ip>:8000
+# See AWS_DEPLOYMENT.md.
+services:
+  engine:
+    build: ./engine
+    volumes:
+      - shared-data:/shared
+    ports:
+      - "8010:8000"
+    environment:
+      - BACKEND1_URL=${BACKEND1_URL:?Set BACKEND1_URL to backend1's EC2 address in .env}
+      - BACKEND2_URL=${BACKEND2_URL:?Set BACKEND2_URL to backend2's EC2 address in .env}
+      - BACKEND3_URL=${BACKEND3_URL:?Set BACKEND3_URL to backend3's EC2 address in .env}
+    restart: unless-stopped
+
+  router:
+    build: ./router
+    volumes:
+      - shared-data:/shared
+    ports:
+      - "9000:8000"
+    environment:
+      - BACKEND1_URL=${BACKEND1_URL:?Set BACKEND1_URL to backend1's EC2 address in .env}
+      - BACKEND2_URL=${BACKEND2_URL:?Set BACKEND2_URL to backend2's EC2 address in .env}
+      - BACKEND3_URL=${BACKEND3_URL:?Set BACKEND3_URL to backend3's EC2 address in .env}
+    depends_on:
+      - engine
+    restart: unless-stopped
+
+  chaos-orchestrator:
+    build: ./chaos
+    volumes:
+      - shared-data:/shared
+    environment:
+      - BACKEND1_URL=${BACKEND1_URL:?Set BACKEND1_URL to backend1's EC2 address in .env}
+      - BACKEND2_URL=${BACKEND2_URL:?Set BACKEND2_URL to backend2's EC2 address in .env}
+      - BACKEND3_URL=${BACKEND3_URL:?Set BACKEND3_URL to backend3's EC2 address in .env}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      # generated from prometheus/prometheus.ec2.yml.template -- see
+      # AWS_DEPLOYMENT.md step 5. Prometheus doesn't do env-var
+      # substitution in its own config, so the real backend IPs get
+      # substituted into a real file before this mounts it.
+      - ./prometheus/prometheus.ec2.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  shared-data:

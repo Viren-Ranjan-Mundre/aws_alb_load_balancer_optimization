@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.DS_Store
+# data_*.csv, benchmark_*.json, results_opt*.json, weight_timeline_*.jsonl,
+# and plots/ are intentionally NOT ignored -- they're real telemetry and
+# real measured results from the 6-phase benchmark (see
+# risk-model/run_aws_benchmarks.py and risk-model/plot_benchmarks.py), and
+# are evidence the risk model was trained on and evaluated against real
+# data, not a claim with nothing to back it.

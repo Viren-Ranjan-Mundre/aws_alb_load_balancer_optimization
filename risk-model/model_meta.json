@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "model_type": "logistic",
+  "file": "risk_model_v1_logistic.pkl",
+  "trained_at": 1789965007.9712794,
+  "datasets_requested": null,
+  "data_files_used": [
+    "synthetic_fallback"
+  ],
+  "n_samples": 3006,
+  "n_synthetic_supplemented": 0,
+  "continued_from_version": null,
+  "fresh": false,
+  "holdout_accuracy": 0.9282,
+  "holdout_auc": 0.9609,
+  "source": "synthetic_fallback"
+}
